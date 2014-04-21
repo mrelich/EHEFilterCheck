@@ -17,9 +17,10 @@ from icecube.icetray import I3PacketModule
 from icecube.BadDomList import bad_dom_list_static
 import os, sys
 import glob
+import numpy as n
 from optparse import OptionParser
 
-from ROOT import TFile, TH1F, TMath
+from ROOT import TFile, TH1F, TMath, TParameter, TTree
 
 #                                                                                                  
 ## EHE User methods                                                                                
@@ -53,9 +54,6 @@ parser = OptionParser()
 parser.add_option("-i", "--input", action="callback", callback=multiarg, default="", dest="INPUT",\
 help="Input i3 data file")
 
-parser.add_option("--root",action="store",type="string",default="",dest="OUTPUTROOT",help="Output \
-root file name")
-
 #
 ## Get parsed arguments
 #
@@ -66,8 +64,13 @@ inFile     = open(inputFName,"r")
 fileList = []
 for f in inFile:
     fileList.append(f.split("\n")[0])
-outrootfile = options.OUTPUTROOT
 
+# Take the input file name and save
+# ROOT file in same format
+outName = inputFName.split("/")[2]
+outName = outName.split(".")[0]
+outrootfile = "../rootfiles/"+outName+".root"
+print outrootfile
 #----------------------------------#
 # Load Libraries
 #----------------------------------#
@@ -103,6 +106,28 @@ h_coszen_ImpLF = hist("coszen_ImpLF",20,-1,1)
 h_logNPE       = hist("logNPE",100,0,10)
 
 #----------------------------------#
+# Make a tree
+#----------------------------------#
+tree = TTree("tree","EHE Filter Check Tree")
+
+#
+## Set branches
+#
+
+#Variables
+m_NPE    = n.zeros(1,dtype=float)
+m_NPEbtw = n.zeros(1,dtype=float)
+m_time   = n.zeros(1,dtype=float)
+m_coszen_SPE12 = n.zeros(1,dtype=float)
+m_coszen_ImpLF = n.zeros(1,dtype=float)
+
+tree.Branch("NPE", m_NPE, "NPE/D")
+tree.Branch("NPEbtw", m_NPEbtw, "NPEbtw/D")
+tree.Branch("DAQtime", m_time, "Timing/D")
+tree.Branch("coszen_SPE12", m_coszen_SPE12,"COSZENSPE12/D")
+tree.Branch("coszen_ImpLF", m_coszen_ImpLF,"COSZENIMPLF/D")
+
+#----------------------------------#
 # Define plotting modules
 #----------------------------------#
 
@@ -115,7 +140,7 @@ def timingInfo(frame):
     if 'I3EventHeader' not in frame:
         return False
     
-    global initialTime, previousTime
+    global initialTime, previousTime, m_time
 
     # Get UTC Time
     start_time = frame['I3EventHeader'].start_time
@@ -130,6 +155,7 @@ def timingInfo(frame):
         h_dt.Fill(daq_time - previousTime)
 
     previousTime = daq_time
+    m_time[0] = daq_time
 
     return True
 
@@ -137,6 +163,8 @@ def timingInfo(frame):
 ## Physics histograms
 #
 def physicsInfo(frame):
+
+    global m_NPE, m_NPEbtw, m_coszen_SPE12, m_coszen_ImpLF
 
     # Make sure all necessary frames are here
     if 'SPEFit12EHE' not in frame:
@@ -154,6 +182,17 @@ def physicsInfo(frame):
     h_coszen_SPE12.Fill(TMath.Cos(zen_SPE12))
     h_coszen_ImpLF.Fill(TMath.Cos(zen_ImpLF))
     h_logNPE.Fill(TMath.Log10(npe))
+
+    
+    m_NPEbtw[0] = npe
+    m_NPE[0]    = frame['EHEPortiaEventSummary'].GetTotalBestNPE()
+    m_coszen_SPE12[0] = TMath.Cos(zen_SPE12)
+    m_coszen_ImpLF[0] = TMath.Cos(zen_ImpLF)
+    
+def fillTree(frame):
+    global tree
+    tree.Fill()
+    return True
 
 #----------------------------------#
 # Add Modules
@@ -185,7 +224,7 @@ def CountEvent(frame):
 tray.AddModule(CountEvent,"counter")
 tray.AddModule(physicsInfo,"physInfo")
 tray.AddModule(timingInfo,"timingInfo")
-
+tray.AddModule(fillTree,"treefiller")
 #                                                                                                  
 ## Clean up                                                                                        
 #                                                                                                  
@@ -198,9 +237,21 @@ tray.AddModule("TrashCan","itterashai")
 tray.Execute()
 tray.Finish()
 
+
+#----------------------------------#
+# Add some additional information as
+# a TParameter
+#----------------------------------#
+total_time = previousTime - initialTime
+tot_time = TParameter('double')("livetime",total_time)
+tot_time.Write()
+
+#----------------------------------#
+# Printout some final info
+#----------------------------------#
 print "Total EHE events: ", counter
+print "Total time: ", total_time
 
 
-print "Total time: ", previousTime - initialTime
 rootfile.Write()
 rootfile.Close()
