@@ -1,3 +1,6 @@
+2014-04-22 Matt:
+	* Removing extra scripts and making more general.
+
 2014-04-21 Matt:
 	* Python script fixed to make trees.  Perform first run then modify and remove histograms
 
