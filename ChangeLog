@@ -1,3 +1,7 @@
+2014-04-23 Matt:
+	* New package structure done.
+	* Commit and tag, then try to make official project
+	
 2014-04-22 Matt:
 	* Removing extra scripts and making more general.
 	* Renaming EHEFilter to EHESplitter

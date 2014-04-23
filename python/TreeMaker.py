@@ -20,57 +20,59 @@ import glob
 import numpy as n
 from optparse import OptionParser
 
-from ROOT import TFile, TH1F, TMath, TParameter, TTree
-
-#                                                                                                  
-## EHE User methods                                                                                
-#                                                                                                  
-from EHEFilter import *
-
-#----------------------------------#
-# Stick with same user options
-#----------------------------------#
-def multiarg(option, opt_str, value, parser):
-    assert value is None
-    value = []
-    def floatable(str):
-        try:
-            float(str)
-            return True
-        except ValueError:
-            return False
-
-    for arg in parser.rargs:
-        if arg[:2] == "--" and len(arg) > 2:
-            break
-        if arg[:1] == "-" and len(arg) > 1 and not floatable(arg):
-            break
-        value.append(arg)
-    del parser.rargs[:len(value)]
-    setattr(parser.values,option.dest,value)
-
-parser = OptionParser()
-
-parser.add_option("-i", "--input", action="callback", callback=multiarg, default="", dest="INPUT",\
-help="Input i3 data file")
+from ROOT import TFile, TMath, TParameter, TTree
 
 #
-## Get parsed arguments
+## EHE User Methods
+#
+from EHESplitter import *
+from Tree import *
+
+#----------------------------------#
+# One user option is supported
+#----------------------------------#
+argv = sys.argv
+if len(argv) != 2:
+    print "In order to run script.py path/to/filelist.txt"
+    print "You entered: "
+    print argv
+    sys.exit()
+
+#
+## Assume first argument is path to file
+#
+tofile = argv[1]
+if not os.path.isfile(tofile):
+    print "File doesn't exist."
+    print tofile
+    print "Enter valid path."
+    sys.exit()
+#
+## Now set input
 #
 
-(options, args) = parser.parse_args()
-inputFName = options.INPUT[0]
-inFile     = open(inputFName,"r")
-fileList = []
-for f in inFile:
+inputFile = open(tofile,"r")
+fileList  = []
+for f in inputFile:
     fileList.append(f.split("\n")[0])
 
-# Take the input file name and save
-# ROOT file in same format
-outName = inputFName.split("/")[2]
-outName = outName.split(".")[0]
+#
+## Now output
+#
+outName   = tofile
+if "/" in tofile:
+    outName = tofile.split("/")[-1]  # remove rest of path
+outName = outName.split(".")[0]      # get rid of .txt
+
 outrootfile = "../rootfiles/"+outName+".root"
-print outrootfile
+
+#
+## Have input info and output
+#
+
+print "Input:  ", tofile
+print "Output: ", outrootfile
+
 #----------------------------------#
 # Load Libraries
 #----------------------------------#
@@ -87,52 +89,18 @@ load("libportia")
 tray = I3Tray()
 
 #----------------------------------#
-# Define ROOT File and histograms
+# Define Root File and Tree
 #----------------------------------#
-
-def hist(name,nbins,xmin,xmax):
-    h = TH1F(name,name,nbins,xmin,xmax)
-    return h
 
 # Output file
 rootfile = TFile(outrootfile,"recreate")
 
-# delta T histogram
-h_dt = hist("deltaT_DAQ",10000,0,10)
-
-# Physics histograms
-h_coszen_SPE12 = hist("coszeb_SPE12",20,-1,1)
-h_coszen_ImpLF = hist("coszen_ImpLF",20,-1,1)
-h_logNPE       = hist("logNPE",100,0,10)
-
 #----------------------------------#
-# Make a tree
-#----------------------------------#
-tree = TTree("tree","EHE Filter Check Tree")
-
-#
-## Set branches
-#
-
-#Variables
-m_NPE    = n.zeros(1,dtype=float)
-m_NPEbtw = n.zeros(1,dtype=float)
-m_time   = n.zeros(1,dtype=float)
-m_coszen_SPE12 = n.zeros(1,dtype=float)
-m_coszen_ImpLF = n.zeros(1,dtype=float)
-
-tree.Branch("NPE", m_NPE, "NPE/D")
-tree.Branch("NPEbtw", m_NPEbtw, "NPEbtw/D")
-tree.Branch("DAQtime", m_time, "Timing/D")
-tree.Branch("coszen_SPE12", m_coszen_SPE12,"COSZENSPE12/D")
-tree.Branch("coszen_ImpLF", m_coszen_ImpLF,"COSZENIMPLF/D")
-
-#----------------------------------#
-# Define plotting modules
+# Define some user modules as needed
 #----------------------------------#
 
 #
-## Timing histogram
+## Want to save livetime
 #
 initialTime  = -999.
 previousTime = -999. 
@@ -140,58 +108,32 @@ def timingInfo(frame):
     if 'I3EventHeader' not in frame:
         return False
     
-    global initialTime, previousTime, m_time
+    global initialTime, previousTime
 
     # Get UTC Time
     start_time = frame['I3EventHeader'].start_time
     daq_time   = start_time.utc_daq_time
-    
-    # Fill hists and store variables
-    if initialTime < 0:
-        initialTime = daq_time
-    if previousTime < 0:
-        h_dt.Fill(0)
-    else:
-        h_dt.Fill(daq_time - previousTime)
 
+    # Save times
     previousTime = daq_time
-    m_time[0] = daq_time
 
     return True
 
 #
-## Physics histograms
+## Some event counter to let
+## user know things progressing
 #
-def physicsInfo(frame):
-
-    global m_NPE, m_NPEbtw, m_coszen_SPE12, m_coszen_ImpLF
-
-    # Make sure all necessary frames are here
-    if 'SPEFit12EHE' not in frame:
+counter = 0
+def CountEvent(frame):
+    if not which_split(frame, split_name='InIceSplit'):
         return False
-    if 'EHEOpheliaParticleSRT_ImpLF' not in frame:
-        return False
-    if 'EHEPortiaEventSummary' not in frame:
+    if not isEHEPStream(frame):
         return False
 
-    # Get the three variables
-    zen_SPE12 = frame['SPEFit12EHE'].dir.zenith
-    zen_ImpLF = frame['EHEOpheliaParticleSRT_ImpLF'].dir.zenith
-    npe       = frame['EHEPortiaEventSummary'].GetTotalBestNPEbtw()
-
-    h_coszen_SPE12.Fill(TMath.Cos(zen_SPE12))
-    h_coszen_ImpLF.Fill(TMath.Cos(zen_ImpLF))
-    h_logNPE.Fill(TMath.Log10(npe))
-
-    
-    m_NPEbtw[0] = npe
-    m_NPE[0]    = frame['EHEPortiaEventSummary'].GetTotalBestNPE()
-    m_coszen_SPE12[0] = TMath.Cos(zen_SPE12)
-    m_coszen_ImpLF[0] = TMath.Cos(zen_ImpLF)
-    
-def fillTree(frame):
-    global tree
-    tree.Fill()
+    global counter
+    if counter % 100 == 0:
+        print "Processed " + str(counter) + " EHE Events"
+    counter += 1
     return True
 
 #----------------------------------#
@@ -205,29 +147,26 @@ def fillTree(frame):
 tray.AddModule( "I3Reader", "Reader",
                 Filenamelist = fileList)
 
-#                                                                                                  
-## Print info                                                                                      
-#                                                                                                  
-counter = 0
-def CountEvent(frame):
-    if not which_split(frame, split_name='InIceSplit'):
-        return False
-    if not isEHEPStream(frame):
-        return False
+#
+## Add user Modules
+#
 
-    global counter
-    if counter % 100 == 0:
-        print "Have " + str(counter) + " EHE Event"
-    counter += 1
-    return True
-
+# Count event must be first. It is what
+# makes sure that the event is an EHE
+# event!
 tray.AddModule(CountEvent,"counter")
-tray.AddModule(physicsInfo,"physInfo")
+
+# Save some timing info to calculate 
+# livetime. Not necessary, but nice
+# to have
 tray.AddModule(timingInfo,"timingInfo")
-tray.AddModule(fillTree,"treefiller")
-#                                                                                                  
-## Clean up                                                                                        
-#                                                                                                  
+
+# Add method to fill the tree
+tray.AddModule(fillTree, "treeFiller")
+
+#
+## Clean up
+#
 
 tray.AddModule("TrashCan","itterashai")
 
@@ -253,5 +192,9 @@ print "Total EHE events: ", counter
 print "Total time: ", total_time
 
 
+#----------------------------------#
+# Write and close root file
+#----------------------------------#
+tree.Write()
 rootfile.Write()
 rootfile.Close()
