@@ -1,12 +1,15 @@
 #!/usr/bin/env python
 
-#-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
-# So it turns out that ehe package doesn't have latest #
-# recopulse package, and the standard icerec project   #
-# doesn't have tree maker... So I will just do the     #
-# analysis without making the tree and just make the   #
-# histograms                                           #
-#-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
+#-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-#
+# This script will create a TTree object stored in      #
+# a rootfile.  It takes as input the full path to a     #
+# .txt file that contains the full path to the i3 files #
+# to be processed.  The tree variables to be stored     #
+# are defined in Tree.py along with the methods to fill #
+# them.                                                 #
+# The user should not have to edit this file unless     #
+# more methods are added in Tree.py                     #
+#-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-#
 
 #----------------------------------#
 # import icecube things
